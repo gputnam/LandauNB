@@ -8,7 +8,6 @@ python3.
 python -m venv env
 source env/bin/activate
 pip install -r requirements.txt
-pip install -r requirelandau.txt
 python -m ipykernel install --name env --user
 
 # Run the Jupyter notebook
