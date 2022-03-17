@@ -1,5 +1,5 @@
 *.pyc
 *.nfs*
-.txt
+*.txt
 /*env/
 /.ipynb_checkpoints/
