@@ -16,7 +16,7 @@ this_maxE = 10
 dE = this_maxE / n_dist_sample
 dEw = dE*downsample
 
-save_downsample = 100
+save_downsample = 20
 
 def make_f0():
     energies = np.linspace(0, this_maxE, n_dist_sample, endpoint=False)
@@ -27,52 +27,47 @@ def make_f0():
         i += 1
         dx0 = dx0 / 2
     
-    
     f0 = np.zeros((n_dist_sample,))
     f0[energies >= I0] = dx0 * xsec(energies[energies >= I0]) * density 
     f0[0] += (1 - density * total_xsec * dx0) / dE
 
     dx = dx0
-    f = f0
-    i_conv = 0
-    fs = []
-    pitches = []
+    f_fft = np.fft.rfft(f0)
     for i_conv in tqdm(range(i), total=i):
-        f = selfconvolve(f) * dE
+        f_fft = f_fft * f_fft * dE
         dx = dx * 2
-        f = f / np.sum(f*dE)
-   
-    gc.collect()
-   
-    return f
+        f_fft = f_fft / np.real(np.sum(f_fft*dE) / len(f_fft))
+    
+        gc.collect()
+    
+    return np.fft.irfft(f_fft)
 
 def weighted_f(fdx, xs, wirep, smearing):
+    fdx_fft = np.fft.rfft(fdx)
     fw = np.zeros(len(fdx))
     fw[0] = 1. / dEw
+    fw_fft = np.fft.rfft(fw)
+    
     ws = smeared_dep(xs, wirep, smearing)
     for w in tqdm(ws[ws >= 1. / (n_dist_sample / downsample)], total=len(ws[ws >= 1. / (n_dist_sample / downsample)])):
-        f_x = np.zeros(len(fdx))
+        f_x_fft = np.zeros(len(fdx_fft), dtype=np.complex_)
         if w < 1. / (n_dist_sample / downsample):
             continue
         else:
-            nskip = int(1. / w)
-            toset = np.unique(np.floor(np.arange((n_dist_sample // downsample))/w).astype(int)) // nskip
-            toset = toset[toset < ((n_dist_sample // downsample) // nskip)]
-            nset = len(toset)
-            f_x[:nset] = np.sum(fdx[:len(fdx)-(len(fdx) % nskip)].reshape(-1, nskip), axis=1)[toset]
-            f_x = f_x / np.sum(f_x*dEw)
+            toset = np.around(np.arange(n_dist_sample//downsample//2+1) * w).astype(int)    
+            f_x_fft[:] = fdx_fft[toset]
+            f_x_fft = f_x_fft / np.real(np.sum(f_x_fft*dEw) / len(f_x_fft))
 
-            fw = doconvolve(fw, f_x)[:len(fdx)] * dEw
-            fw = fw / np.sum(fw*dEw)
-    return fw
+            fw_fft = fw_fft * f_x_fft * dEw
+            fw_fft = fw_fft / np.real(np.sum(fw_fft*dEw) / len(fw_fft))
+            
+    return np.fft.irfft(fw_fft)
 
 def main(smearing):
     print("Making f0 distribution")
     f = make_f0()
 
-    # fdx = f[::downsample]
     fdx = np.mean(f.reshape(-1, downsample), axis=1)
-    
     
     fdx = fdx / np.sum(fdx*dEw)
     xs = np.linspace(-pitch*(Nconvolve/2), pitch*(Nconvolve/2), Nconvolve+1)
@@ -84,8 +79,8 @@ def main(smearing):
     outf = ("f0_muonE%.0f_smeared%.3fcm" % (muonE, smearing)).replace(".", "_") + ".txt"
     print("Saving to %s" % outf)
     with open(outf, "w") as f:
-        for w in fw[::save_downsample]:
-            f.write(str(w))
+        for w in np.mean(fw.reshape(-1, save_downsample), axis=1):
+            f.write(str(w) + "\n")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
